@@ -816,6 +816,16 @@ async function loadGoogleUserInfo(token: string) {
     console.error('Lỗi lấy thông tin Google User:', err)
   }
 }
+// Tự động chọn Redirect URI phù hợp theo môi trường
+const getRedirectUri = () => {
+  if (import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+    return 'http://localhost:1420' // Port dev của bạn (1420/5173/3000)
+  }
+  // Môi trường Production (.exe)
+  return 'https://tauri.localhost' 
+}
+
+const redirectUri = getRedirectUri()
 
 // import { openUrl } from '@tauri-apps/plugin-opener' // Hoặc dùng window.open nếu chưa cài plugin
 
@@ -830,7 +840,7 @@ function login() {
   // Tạo đường dẫn OAuth 2.0 chuẩn của Google (Implicit Flow)
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
     client_id: clientId,
-    redirect_uri: 'http://localhost:1420', // Hoặc redirect URI bạn đã khai báo trên Google Cloud
+    redirect_uri: redirectUri,
     response_type: 'token',
     scope: scopes,
     prompt: 'select_account'
