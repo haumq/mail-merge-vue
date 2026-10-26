@@ -744,7 +744,6 @@ const menuRef = ref<HTMLElement | null>(null)
 const authLoading = ref(true)
 const googleAccessToken = ref<string | null>(null)
 const userInfo = ref<{ name: string; email: string; avatar: string | null } | null>(null)
-let tokenClient: any = null
 
 function handleClickOutside(event: MouseEvent) {
   if (menuRef.value && !menuRef.value.contains(event.target as Node)) {
@@ -774,7 +773,7 @@ onMounted(async () => {
   try {
     await loadGoogleGsiScript()
     if ((window as any).google?.accounts?.oauth2) {
-      tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+      (window as any).google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
         callback: async (response: any) => {

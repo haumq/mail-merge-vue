@@ -1,6 +1,7 @@
 name: "Publish Cross-Platform Release"
 
 on:
+  workflow_dispatch: # 👈 Thêm dòng này để cho phép kích hoạt bằng tay trên GitHub
   push:
     tags:
       - 'v*' # Chạy tự động khi bạn push tag dạng v1.0.0, v1.0.1...
