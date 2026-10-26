@@ -54,4 +54,5 @@ jobs:
           releaseBody: 'Xem danh sách thay đổi chi tiết tại commit log.'
           releaseDraft: true
           prerelease: false
+          uploadPlainBinary: true
           args: ${{ matrix.args }}
