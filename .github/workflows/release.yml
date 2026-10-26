@@ -22,6 +22,9 @@ jobs:
             args: ''
 
     runs-on: ${{ matrix.platform }}
+    .env:
+      VITE_GMAIL_CLIENT_ID: ${{ secrets.VITE_GMAIL_CLIENT_ID }}
+      VITE_OUTLOOK_CLIENT_ID: ${{ secrets.VITE_OUTLOOK_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,13 +46,17 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+      
+      - name: Create .env file for Vite
+        run: |
+          echo "VITE_GMAIL_CLIENT_ID=${{ secrets.VITE_GMAIL_CLIENT_ID }}" > .env
+          echo "VITE_OUTLOOK_CLIENT_ID=${{ secrets.VITE_OUTLOOK_CLIENT_ID }}" >> .env
+        shell: bash
 
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VITE_GMAIL_CLIENT_ID: ${{ secrets.VITE_GMAIL_CLIENT_ID }}
-          VITE_OUTLOOK_CLIENT_ID: ${{ secrets.VITE_OUTLOOK_CLIENT_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Mail Merge Pro ${{ github.ref_name }}'
