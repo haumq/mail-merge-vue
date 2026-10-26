@@ -54,5 +54,5 @@ jobs:
           releaseBody: 'Xem danh sách thay đổi chi tiết tại commit log.'
           releaseDraft: true
           prerelease: false
-          uploadPlainBinary: true
+          uploadPlainBinary: true # 👈 Bật tính năng đẩy thêm file .exe Portable chạy trực tiếp
           args: ${{ matrix.args }}
