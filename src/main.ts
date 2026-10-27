@@ -3,36 +3,40 @@ import App from './App.vue'
 import './style.css' // File chứa cấu hình Tailwind CSS
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
+import { emit } from '@tauri-apps/api/event'
+
 async function initApp() {
   const currentWin = getCurrentWindow()
 
-  // 1. KIỂM TRA NẾU LÀ CỬA SỔ POPUP OAUTH
+  // NẾU LÀ CỬA SỔ POPUP OAUTH
   if (currentWin.label === 'google-oauth-popup' || currentWin.label === 'outlook-oauth-popup') {
     const hash = window.location.hash
     const isGoogle = currentWin.label === 'google-oauth-popup'
-    const storageKey = isGoogle ? 'gmail_access_token' : 'outlook_access_token'
+    const provider = isGoogle ? 'gmail' : 'outlook'
 
     if (hash.includes('access_token=')) {
       const params = new URLSearchParams(hash.replace('#', '?'))
       const token = params.get('access_token')
+
       if (token) {
-        localStorage.setItem(storageKey, token)
+        // 1. Lưu tạm vào localStorage của Popup
+        localStorage.setItem(`${provider}_access_token`, token)
+
+        // 2. 💥 PHÁT SỰ KIỆN SANG CỬA SỔ CHÍNH ĐỂ CẬP NHẬT STATE VUE LẬP TỨC
+        await emit('oauth-login-success', { provider, token })
       }
-    } else if (hash.includes('error=')) {
-      console.error('Lỗi OAuth từ Provider:', hash)
     }
 
-    // 2. ÉP HỦY CỬA SỔ PHỤ TRONG MỌI TRƯỜNG HỢP
+    // 3. Tắt cửa sổ Popup
     try {
       await currentWin.destroy()
     } catch {
       window.close()
     }
-
-    return // 🛑 DỪNG TẠI ĐÂY, KHÔNG MOUNT VUE TRÊN POPUP
+    return // 🛑 Dừng hoàn toàn, không mount Vue trên cửa sổ Popup
   }
 
-  // 3. CỬA SỔ CHÍNH: Khởi chạy Vue bình thường
+  // CỬA SỔ CHÍNH: Mount App bình thường
   createApp(App).mount('#app')
 }
 

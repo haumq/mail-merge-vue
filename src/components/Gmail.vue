@@ -732,12 +732,14 @@
 
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+// import { listen } from '@tauri-apps/api/event'
+// import { openUrl } from '@tauri-apps/plugin-opener'
+// import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch, onDeactivated, onActivated } from 'vue'
 import ExcelJS from 'exceljs'
 
 // Lấy Client ID từ biến môi trường của Vite
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
+// const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 // State Đăng Nhập Google (OAuth 2.0)
 const toggleMenu = ref(false)
@@ -813,11 +815,32 @@ async function loadGoogleUserInfo(token: string) {
   }
 }
 
-async function login() {
-  if (!GOOGLE_CLIENT_ID) {
-    alert('Chưa cấu hình VITE_GOOGLE_CLIENT_ID trong file .env!')
-    return
+
+import { listen } from '@tauri-apps/api/event'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+
+// const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
+// const userInfo = ref<any>(null)
+
+onMounted(async () => {
+  // 💥 LẮNG NGHE EVENT TỪ POPUP GỬI VỀ CỬA SỔ CHÍNH
+  await listen<{ provider: string; token: string }>('oauth-login-success', async (event) => {
+    if (event.payload.provider === 'gmail') {
+      const token = event.payload.token
+      googleAccessToken.value = token
+      localStorage.setItem('gmail_access_token', token)
+      await loadGoogleUserInfo(token)
+    }
+  })
+
+  if (googleAccessToken.value) {
+    await loadGoogleUserInfo(googleAccessToken.value)
   }
+})
+
+async function login() {
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  if (!clientId) return alert('Chưa cấu hình VITE_GOOGLE_CLIENT_ID!')
 
   const redirectUri = 'http://localhost:1420'
   const scopes = [
@@ -827,56 +850,46 @@ async function login() {
   ].join(' ')
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'token',
     scope: scopes,
     prompt: 'select_account'
   }).toString()
 
-  // Mở Popup
-  const authWindow = new WebviewWindow('google-oauth-popup', {
+  const authPopup = new WebviewWindow('google-oauth-popup', {
     url: authUrl,
-    title: 'Đăng nhập Google Mail',
-    width: 520,
+    title: 'Đăng nhập Google',
+    width: 500,
     height: 650,
     center: true,
     resizable: false,
-    alwaysOnTop: true
+    alwaysOnTop: true,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   })
 
-  let unlisten: (() => void) | null = null
-
-  // 💥 LẮNG NGHE SỰ KIỆN CHUYỂN HƯỚNG TỪ CỬA SỔ CHÍNH (Bắt được Token kể cả khi cổng 1420 không có server)
-  unlisten = await authWindow.listen<{ url: string }>('tauri://on-page-load', async (event) => {
-    const url = event.payload?.url || ''
-
-    if (url.includes('access_token=')) {
-      const hash = url.substring(url.indexOf('#'))
-      const params = new URLSearchParams(hash.replace('#', '?'))
-      const token = params.get('access_token')
-
-      if (token) {
-        googleAccessToken.value = token
-        await loadGoogleUserInfo(token)
-        if (unlisten) unlisten()
-        await authWindow.destroy() // Đóng popup ngay lập tức
-      }
-    } else if (url.includes('error=')) {
-      if (unlisten) unlisten()
-      await authWindow.destroy()
-    }
-  })
-
-  await authWindow.once('tauri://destroyed', async () => {
-    if (unlisten) unlisten()
+  // Bắt dự phòng khi Popup đóng
+  authPopup.once('tauri://destroyed', async () => {
     const token = localStorage.getItem('gmail_access_token')
-    if (token && !googleAccessToken.value) {
+    if (token && token !== googleAccessToken.value) {
       googleAccessToken.value = token
       await loadGoogleUserInfo(token)
     }
   })
 }
+
+// async function loadGoogleUserInfo(token: string) {
+//   try {
+//     const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+//       headers: { Authorization: `Bearer ${token}` }
+//     })
+//     if (res.ok) {
+//       userInfo.value = await res.json()
+//     }
+//   } catch (err) {
+//     console.error('Lỗi lấy thông tin Google User:', err)
+//   }
+// }
 
 function logout() {
   googleAccessToken.value = null
