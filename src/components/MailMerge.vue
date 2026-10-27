@@ -732,7 +732,7 @@
 
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+// import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch, onDeactivated, onActivated } from 'vue'
 import ExcelJS from 'exceljs'
 import { msalInstance, loginRequest } from '../authConfig'
@@ -834,7 +834,7 @@ async function fetchOutlookProfile(token: string) {
   }
 }
 
-import { listen } from '@tauri-apps/api/event'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 const outlookAccessToken = ref<string>(localStorage.getItem('outlook_access_token') || '')
 
@@ -854,42 +854,79 @@ onMounted(async () => {
   }
 })
 
+
+
+const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
+
+let unlistenOAuth: UnlistenFn | null = null
+
+onMounted(async () => {
+  // 1. Đăng ký lắng nghe Token do Rust gửi về cửa sổ chính
+  unlistenOAuth = await listen<string>('oauth-token-received', async (event) => {
+    const url = event.payload || ''
+
+    if (url.includes('access_token=')) {
+      const hash = url.substring(url.indexOf('#'))
+      const params = new URLSearchParams(hash.replace('#', '?'))
+      const token = params.get('access_token')
+
+      if (token) {
+        // Cập nhật State Vue & localStorage lập tức
+        googleAccessToken.value = token
+        localStorage.setItem('gmail_access_token', token)
+        await loadGoogleUserInfo(token)
+      }
+    }
+  })
+
+  if (googleAccessToken.value) {
+    await loadGoogleUserInfo(googleAccessToken.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (unlistenOAuth) unlistenOAuth()
+})
+
+async function loadGoogleUserInfo(token: string) {
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (res.ok) {
+      userInfo.value = await res.json()
+    }
+  } catch (err) {
+    console.error('Lỗi tải thông tin user:', err)
+  }
+}
+
 async function login() {
-  const clientId = import.meta.env.VITE_OUTLOOK_CLIENT_ID
-  if (!clientId) return alert('Chưa cấu hình VITE_OUTLOOK_CLIENT_ID!')
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  if (!clientId) return alert('Chưa cấu hình VITE_GOOGLE_CLIENT_ID!')
 
   const redirectUri = 'http://localhost:1420'
-  const scopes = 'User.Read Mail.Send offline_access'
+  const scopes = [
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email'
+  ].join(' ')
 
-  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` + new URLSearchParams({
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
     client_id: clientId,
-    response_type: 'token',
     redirect_uri: redirectUri,
+    response_type: 'token',
     scope: scopes,
-    response_mode: 'fragment',
     prompt: 'select_account'
   }).toString()
 
-  const authPopup = new WebviewWindow('outlook-oauth-popup', {
+  // 2. Gọi lệnh Rust mở Popup đăng nhập
+  await invoke('open_oauth_popup', {
     url: authUrl,
-    title: 'Đăng nhập Microsoft Outlook',
-    width: 500,
-    height: 650,
-    center: true,
-    resizable: false,
-    alwaysOnTop: true,
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  })
-
-  authPopup.once('tauri://destroyed', async () => {
-    const token = localStorage.getItem('outlook_access_token')
-    if (token && token !== outlookAccessToken.value) {
-      outlookAccessToken.value = token
-      await fetchOutlookProfile(token)
-    }
+    title: 'Đăng nhập Google Mail',
+    windowLabel: 'google-oauth-popup'
   })
 }
-
 
 async function logout() {
   try {

@@ -2,10 +2,57 @@
 use std::path::Path;
 use base64::{Engine as _, engine::general_purpose};
 
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+#[tauri::command]
+async fn open_oauth_popup(
+    app: tauri::AppHandle,
+    url: String,
+    title: String,
+    window_label: String,
+) -> Result<(), String> {
+    // Nếu popup cũ chưa đóng, tiến hành đóng trước
+    if let Some(existing_win) = app.get_webview_window(&window_label) {
+        let _ = existing_win.destroy();
+    }
+
+    let app_handle = app.clone();
+    let label_clone = window_label.clone();
+    let target_url = url.parse().map_err(|e| format!("URL không hợp lệ: {}", e))?;
+
+    WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::External(target_url))
+        .title(title)
+        .inner_size(500.0, 650.0)
+        .center()
+        .resizable(false)
+        .always_on_top(true)
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .on_navigation(move |url| {
+            let url_str = url.as_str();
+
+            // 💥 BẮT HƯỚNG CHUYỂN TRƯỚC KHUYẾN NẠP TRANG LOCALHOST
+            if url_str.starts_with("http://localhost:1420") || url_str.contains("access_token=") || url_str.contains("error=") {
+                // 1. Phát Event chứa URL có Token về cửa sổ chính
+                let _ = app_handle.emit("oauth-token-received", url_str.to_string());
+
+                // 2. Hủy popup ngay lập tức
+                if let Some(win) = app_handle.get_webview_window(&label_clone) {
+                    let _ = win.destroy();
+                }
+
+                // 3. Trả về false để CHẶN WebView2 nạp localhost:1420 -> TRÁNH HOÀN TOÀN MÀN HÌNH TRẮNG!
+                return false;
+            }
+
+            true // Cho phép nạp các trang đăng nhập Google/Microsoft
+        })
+        .build()
+        .map_err(|e| format!("Lỗi tạo cửa sổ: {}", e))?;
+
+    Ok(())
+}
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use tauri::Emitter;
 
 #[tauri::command]
 async fn start_oauth_listener(app_handle: tauri::AppHandle) -> Result<(), String> {
@@ -99,7 +146,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_file_exists,
             read_file_base64,
-            start_oauth_listener
+            start_oauth_listener,
+            open_oauth_popup
         ])
         .run(tauri::generate_context!())
         .expect("Lỗi khi chạy ứng dụng Tauri");

@@ -816,8 +816,8 @@ async function loadGoogleUserInfo(token: string) {
 }
 
 
-import { listen } from '@tauri-apps/api/event'
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+// import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 // const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
 // const userInfo = ref<any>(null)
@@ -836,6 +836,38 @@ onMounted(async () => {
   if (googleAccessToken.value) {
     await loadGoogleUserInfo(googleAccessToken.value)
   }
+})
+
+// const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
+
+let unlistenOAuth: UnlistenFn | null = null
+
+onMounted(async () => {
+  // 1. Đăng ký lắng nghe Token do Rust gửi về cửa sổ chính
+  unlistenOAuth = await listen<string>('oauth-token-received', async (event) => {
+    const url = event.payload || ''
+
+    if (url.includes('access_token=')) {
+      const hash = url.substring(url.indexOf('#'))
+      const params = new URLSearchParams(hash.replace('#', '?'))
+      const token = params.get('access_token')
+
+      if (token) {
+        // Cập nhật State Vue & localStorage lập tức
+        googleAccessToken.value = token
+        localStorage.setItem('gmail_access_token', token)
+        await loadGoogleUserInfo(token)
+      }
+    }
+  })
+
+  if (googleAccessToken.value) {
+    await loadGoogleUserInfo(googleAccessToken.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (unlistenOAuth) unlistenOAuth()
 })
 
 async function login() {
@@ -857,24 +889,11 @@ async function login() {
     prompt: 'select_account'
   }).toString()
 
-  const authPopup = new WebviewWindow('google-oauth-popup', {
+  // 2. Gọi lệnh Rust mở Popup đăng nhập
+  await invoke('open_oauth_popup', {
     url: authUrl,
-    title: 'Đăng nhập Google',
-    width: 500,
-    height: 650,
-    center: true,
-    resizable: false,
-    alwaysOnTop: true,
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  })
-
-  // Bắt dự phòng khi Popup đóng
-  authPopup.once('tauri://destroyed', async () => {
-    const token = localStorage.getItem('gmail_access_token')
-    if (token && token !== googleAccessToken.value) {
-      googleAccessToken.value = token
-      await loadGoogleUserInfo(token)
-    }
+    title: 'Đăng nhập Google Mail',
+    windowLabel: 'google-oauth-popup'
   })
 }
 
@@ -887,7 +906,7 @@ async function login() {
 //       userInfo.value = await res.json()
 //     }
 //   } catch (err) {
-//     console.error('Lỗi lấy thông tin Google User:', err)
+//     console.error('Lỗi tải thông tin user:', err)
 //   }
 // }
 
