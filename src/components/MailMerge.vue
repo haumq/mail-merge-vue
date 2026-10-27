@@ -816,13 +816,57 @@ async function loadUserAvatar() {
   } catch {}
 }
 
+// async function login() {
+//   try {
+//     await msalInstance.initialize()
+//     await msalInstance.loginRedirect(loginRequest)
+//   } catch (err: any) {
+//     alert('Không thể chuyển hướng đăng nhập: ' + (err.message || err))
+//   }
+// }
+
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+
 async function login() {
-  try {
-    await msalInstance.initialize()
-    await msalInstance.loginRedirect(loginRequest)
-  } catch (err: any) {
-    alert('Không thể chuyển hướng đăng nhập: ' + (err.message || err))
-  }
+  const clientId = import.meta.env.VITE_OUTLOOK_CLIENT_ID
+  const redirectUri = 'http://localhost:1420'
+  const scopes = 'User.Read Mail.Send offline_access'
+
+  const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` + new URLSearchParams({
+    client_id: clientId,
+    response_type: 'token',
+    redirect_uri: redirectUri,
+    scope: scopes,
+    response_mode: 'fragment',
+    prompt: 'select_account'
+  }).toString()
+
+  const authWindow = new WebviewWindow('outlook-oauth-popup', {
+    url: authUrl,
+    title: 'Đăng nhập Microsoft Outlook',
+    width: 520,
+    height: 680,
+    center: true,
+    resizable: false,
+    alwaysOnTop: true
+  })
+
+  await authWindow.once('tauri://destroyed', async () => {
+    const token = localStorage.getItem('outlook_access_token')
+    if (token) {
+      const res = await fetch('https://graph.microsoft.com/v1.0/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        userInfo.value = {
+          name: data.displayName || 'Microsoft User',
+          email: data.mail || data.userPrincipalName || '',
+          avatar: null
+        }
+      }
+    }
+  })
 }
 
 async function logout() {

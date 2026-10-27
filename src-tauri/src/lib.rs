@@ -38,6 +38,8 @@ fn read_file_base64(path: String) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+    // 👈 Khởi chạy Localhost Server ở port 1420 cho bản .exe
+        .plugin(tauri_plugin_localhost::Builder::new(1420).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         // Đăng ký 2 command với Tauri

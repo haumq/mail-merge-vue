@@ -858,7 +858,7 @@ async function login() {
     prompt: 'select_account'
   }).toString()
 
-  // Tạo cửa sổ phụ
+  // Mở Popup
   const authWindow = new WebviewWindow('google-oauth-popup', {
     url: authUrl,
     title: 'Đăng nhập Google Mail',
@@ -869,7 +869,7 @@ async function login() {
     alwaysOnTop: true
   })
 
-  // Khi cửa sổ phụ bị hủy -> Cửa sổ main lấy token từ localStorage
+  // Lắng nghe khi popup bị hủy -> Đọc Token và nạp User
   await authWindow.once('tauri://destroyed', async () => {
     const token = localStorage.getItem('gmail_access_token')
     if (token) {
@@ -878,6 +878,8 @@ async function login() {
     }
   })
 }
+
+
 onMounted(async () => {
     // 🔄 Khôi phục phiên làm việc nếu có trong Session Storage
   const savedToken = sessionStorage.getItem('gmail_access_token')
