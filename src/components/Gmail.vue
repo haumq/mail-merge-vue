@@ -77,7 +77,7 @@
         </div>
       </div>
 
-      <!-- Nút Thực Hiện Mail Merge (Cố Định Sticky) -->
+      <!-- Nút Thực Hiện Mail Merge -->
       <div class="flex items-center gap-2 w-full sm:w-auto justify-center lg:justify-end">
         <button
           v-if="!userInfo"
@@ -732,13 +732,14 @@
 
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch, onDeactivated, onActivated } from 'vue'
 import ExcelJS from 'exceljs'
 
 // Lấy Client ID từ biến môi trường của Vite
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
-// State Đăng Nhập Google (OAuth 2.0 / GSI)
+// State Đăng Nhập Google (OAuth 2.0)
 const toggleMenu = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
 const authLoading = ref(true)
@@ -751,44 +752,34 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
-// Nạp SDK Google Identity Services (GSI)
-function loadGoogleGsiScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if ((window as any).google?.accounts?.oauth2) {
-      resolve()
-      return
-    }
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Lỗi nạp Google Identity SDK'))
-    document.head.appendChild(script)
-  })
-}
-
+// KHỞI TẠO VA KHÔI PHỤC PHIÊN LÀM VIỆC
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleModalKeydown)
 
-  try {
-    await loadGoogleGsiScript()
-    if ((window as any).google?.accounts?.oauth2) {
-      (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
-        callback: async (response: any) => {
-          if (response.access_token) {
-            googleAccessToken.value = response.access_token
-            await loadGoogleUserInfo(response.access_token)
-          }
-        }
-      })
+  // 1. Khôi phục phiên làm việc từ Storage
+  const savedToken = localStorage.getItem('gmail_access_token') || sessionStorage.getItem('gmail_access_token')
+  const savedUser = localStorage.getItem('gmail_user_info') || sessionStorage.getItem('gmail_user_info')
+
+  if (savedToken) {
+    googleAccessToken.value = savedToken
+    if (savedUser) {
+      try {
+        userInfo.value = JSON.parse(savedUser)
+      } catch {
+        await loadGoogleUserInfo(savedToken)
+      }
+    } else {
+      await loadGoogleUserInfo(savedToken)
     }
-  } catch (err) {
-    console.error('Lỗi khởi tạo Google GSI:', err)
-  } finally {
-    authLoading.value = false
   }
+
+  // 2. Dọn dẹp URL hash nếu bị sót
+  if (window.location.hash.includes('access_token=')) {
+    window.history.replaceState(null, '', window.location.pathname)
+  }
+
+  authLoading.value = false
 })
 
 onBeforeUnmount(() => {
@@ -808,41 +799,21 @@ async function loadGoogleUserInfo(token: string) {
         email: data.email || '',
         avatar: data.picture || null
       }
-      // 💾 Lưu Token & Thống tin User vào Session Storage
+      // 💾 Lưu Token & Thống tin User đồng bộ
+      localStorage.setItem('gmail_access_token', token)
+      localStorage.setItem('gmail_user_info', JSON.stringify(userInfo.value))
       sessionStorage.setItem('gmail_access_token', token)
       sessionStorage.setItem('gmail_user_info', JSON.stringify(userInfo.value))
+    } else {
+      // Token hết hạn
+      logout()
     }
   } catch (err) {
     console.error('Lỗi lấy thông tin Google User:', err)
   }
 }
-// import { openUrl } from '@tauri-apps/plugin-opener' // Hoặc dùng window.open nếu chưa cài plugin
-
-// function login() {
-//   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-//   const scopes = [
-//     'https://www.googleapis.com/auth/gmail.send',
-//     'https://www.googleapis.com/auth/userinfo.profile',
-//     'https://www.googleapis.com/auth/userinfo.email'
-//   ].join(' ')
-
-//   // Tạo đường dẫn OAuth 2.0 chuẩn của Google (Implicit Flow)
-//   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
-//     client_id: clientId,
-//     redirect_uri: redirectUri,
-//     response_type: 'token',
-//     scope: scopes,
-//     prompt: 'select_account'
-//   }).toString()
-
-//   // Chuyển hướng trực tiếp trang hiện tại thay vì bật Popup bị chặn
-//   window.location.href = authUrl
-// }
-
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 async function login() {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
   const redirectUri = 'http://localhost:1420'
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
@@ -851,7 +822,7 @@ async function login() {
   ].join(' ')
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
-    client_id: clientId,
+    client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
     response_type: 'token',
     scope: scopes,
@@ -879,36 +850,13 @@ async function login() {
   })
 }
 
-
-onMounted(async () => {
-    // 🔄 Khôi phục phiên làm việc nếu có trong Session Storage
-  const savedToken = sessionStorage.getItem('gmail_access_token')
-  const savedUser = sessionStorage.getItem('gmail_user_info')
-
-  if (savedToken && savedUser) {
-    googleAccessToken.value = savedToken
-    userInfo.value = JSON.parse(savedUser)
-  }
-  // Bắt Access Token từ URL sau khi Google redirect về
-  const hash = window.location.hash
-  if (hash.includes('access_token=')) {
-    const params = new URLSearchParams(hash.replace('#', '?'))
-    const token = params.get('access_token')
-    if (token) {
-      googleAccessToken.value = token
-      await loadGoogleUserInfo(token)
-      // Dọn dẹp hash trên thanh địa chỉ
-      window.history.replaceState(null, '', window.location.pathname)
-    }
-  }
-})
-
 function logout() {
-  if (googleAccessToken.value && (window as any).google?.accounts?.oauth2) {
-    (window as any).google.accounts.oauth2.revoke(googleAccessToken.value, () => {})
-  }
   googleAccessToken.value = null
   userInfo.value = null
+  localStorage.removeItem('gmail_access_token')
+  localStorage.removeItem('gmail_user_info')
+  sessionStorage.removeItem('gmail_access_token')
+  sessionStorage.removeItem('gmail_user_info')
 }
 
 // 📥 TẢI FILE EXCEL MẪU
@@ -1190,13 +1138,11 @@ function openEditModal(rowIdx: number, colIdx: number) {
 function saveEditModal() {
   const { rowIdx, colIdx, value } = editModal.value
   if (rowIdx >= 0 && colIdx >= 0 && sheetRows.value[rowIdx + 1]) {
-    // Cập nhật giá trị vào mảng
     const updatedRow = [...sheetRows.value[rowIdx + 1]!]
     updatedRow[colIdx] = value
     sheetRows.value[rowIdx + 1] = updatedRow
     sheetRows.value = [...sheetRows.value]
 
-    // Chạy lại kiểm tra file
     onCellDataChange()
   }
   editModal.value.show = false
@@ -1394,13 +1340,12 @@ function fileToBase64(file: File): Promise<string> {
 const fileCheckResults = ref<Record<number, { valid: boolean; missingFiles: string[] }>>({})
 const isCheckingFiles = ref(false)
 
-// Hàm làm sạch triệt để ký tự ẩn Unicode, ngoặc kép và khoảng trắng thừa
 function cleanFilePath(pathStr: string): string {
   return pathStr
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Xóa ký tự ẩn Zero-Width Space & BOM
-    .replace(/\u00a0/g, ' ')               // Chuyển Non-Breaking Space thành khoảng trắng thường
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00a0/g, ' ')
     .trim()
-    .replace(/^["']|["']$/g, '')           // Xóa dấu ngoặc kép ở 2 đầu (nếu có)
+    .replace(/^["']|["']$/g, '')
 }
 
 async function checkAllFilePaths() {
@@ -1419,7 +1364,6 @@ async function checkAllFilePaths() {
 
     if (!rawPaths) continue
 
-    // Tách đường dẫn theo dấu ;, phím Enter (\r\n)
     const pathList = rawPaths
       .split(/[;,\r\n]+/)
       .map(p => cleanFilePath(p))
@@ -1520,9 +1464,7 @@ function onCellDataChange() {
   checkAllEmails()
 }
 
-// -------------------------------------------------------------
-// BỘ ĐÓNG GÓI RFC 822 MIME MESSAGE VÀ MA HOÁ BASE64URL CHO GMAIL API
-// -------------------------------------------------------------
+// BỘ ĐÓNG GÓI RFC 822 MIME MESSAGE VÀ MÃ HÓA BASE64URL CHO GMAIL API
 function buildGMailMimeMessage(options: {
   to: string[]
   cc: string[]
@@ -1535,12 +1477,10 @@ function buildGMailMimeMessage(options: {
   const nl = '\r\n'
   const mimeParts: string[] = []
 
-  // Mã hóa UTF-8 cho tiêu đề và tên file tiếng Việt
   const encodeUtf8Header = (str: string) => {
     return `=?UTF-8?B?${btoa(unescape(encodeURIComponent(str)))}?=`
   }
 
-  // Header cơ bản
   mimeParts.push(`To: ${options.to.join(', ')}`)
   if (options.cc.length) mimeParts.push(`Cc: ${options.cc.join(', ')}`)
   if (options.bcc.length) mimeParts.push(`Bcc: ${options.bcc.join(', ')}`)
@@ -1549,14 +1489,12 @@ function buildGMailMimeMessage(options: {
   mimeParts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`)
   mimeParts.push('')
 
-  // Phần 1: Nội dung HTML
   mimeParts.push(`--${boundary}`)
   mimeParts.push('Content-Type: text/html; charset=UTF-8')
   mimeParts.push('Content-Transfer-Encoding: base64')
   mimeParts.push('')
   mimeParts.push(btoa(unescape(encodeURIComponent(options.htmlBody))))
 
-  // Phần 2: Các File đính kèm (Chung & Riêng)
   for (const att of options.attachments) {
     mimeParts.push(`--${boundary}`)
     mimeParts.push(`Content-Type: ${att.type}; name="${encodeUtf8Header(att.name)}"`)
@@ -1570,7 +1508,6 @@ function buildGMailMimeMessage(options: {
 
   const rawMimeString = mimeParts.join(nl)
 
-  // Chuyển đổi thành dạng Base64URL (RFC 4648 §5) theo quy định bắt buộc của Google Gmail API
   return btoa(unescape(encodeURIComponent(rawMimeString)))
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
@@ -1657,7 +1594,6 @@ async function sendRows(targetIndices?: number[]) {
         }
       }
 
-      // Đóng gói thành chuỗi Raw MIME Base64URL
       const rawMime = buildGMailMimeMessage({
         to: toRecipients,
         cc: ccRecipients,
@@ -1686,7 +1622,6 @@ async function sendRows(targetIndices?: number[]) {
         rowStatuses.value[i] = 'FAILED'
       }
 
-      // Giữ khoảng nghỉ giữa các lần gửi tránh bị Google giới hạn rate limit
       if (loopIndex < indicesToProcess.length - 1) {
         await sleep(2500)
       }
@@ -1702,7 +1637,6 @@ async function sendRows(targetIndices?: number[]) {
   }
 }
 
-// BẬT POPUP XÁC NHẬN KHI BẤM NÚT GỬI MAIL
 function submitExcel() { 
   confirmSendModal.value = {
     show: true,
@@ -1725,7 +1659,7 @@ function handleConfirmSend() {
   sendRows(targetIndices)
 }
 
-// DARK MODE & CẤU HÌNH TINYMCE 7 (GIỮ NGUYÊN PARSER PASTE NATIVE)
+// DARK MODE & CẤU HÌNH TINYMCE 7
 const isDark = ref(false)
 
 function loadTinyMCEScript(): Promise<void> {
@@ -1824,7 +1758,6 @@ async function initTinyMCE() {
             lastFocusedField.value = 'body'
           })
 
-          // ĐỌC TRỰC TIẾP CLIPBOARD NATIVE ĐỂ GIỮ NGUYÊN VIỀN/MÀU EXCEL VÀ ẨN VIỀN WORD
           editor.on('paste', (e: ClipboardEvent) => {
             const clipboardHtml = e.clipboardData?.getData('text/html')
             if (!clipboardHtml || !/<table/i.test(clipboardHtml)) {
@@ -1940,21 +1873,19 @@ onBeforeUnmount(() => {
   }
 })
 
-// 1. Khi người dùng rời sang Tab khác: Lưu nội dung & Hủy instance TinyMCE
 onDeactivated(() => {
   if ((window as any).tinymce) {
     const editor = (window as any).tinymce.get('mail-editor')
     if (editor) {
-      bodyTemplate.value = editor.getContent() // Lưu lại nội dung đang soạn thảo
+      bodyTemplate.value = editor.getContent()
     }
-    (window as any).tinymce.remove('#mail-editor') // Hủy instance TinyMCE bị đóng băng
+    (window as any).tinymce.remove('#mail-editor')
   }
 })
 
-// 2. Khi người dùng quay lại Tab này: Khởi tạo lại TinyMCE
 onActivated(async () => {
   await nextTick()
-  initTinyMCE() // Re-init lại khung soạn thảo với nội dung đã lưu
+  initTinyMCE()
 })
 </script>
 
@@ -1966,7 +1897,6 @@ onActivated(async () => {
   box-sizing: border-box !important;
 }
 
-/* KHUNG XEM TRƯỚC (LIVE PREVIEW) CANVAS */
 .preview-canvas :deep(table) {
   border-collapse: collapse;
   margin: 12px 0;

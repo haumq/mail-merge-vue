@@ -77,7 +77,7 @@
         </div>
       </div>
 
-      <!-- Nút Thực Hiện Mail Merge (Cố Định Sticky) -->
+      <!-- Nút Thực Hiện Mail Merge -->
       <div class="flex items-center gap-2 w-full sm:w-auto justify-center lg:justify-end">
         <button
           v-if="!userInfo"
@@ -446,7 +446,7 @@
               ></textarea>
             </div>
     
-            <!-- MÀN HÌNH XEM TRƯỚC (LIVE PREVIEW) - HIỂN THỊ FILE ĐÍNH KÈM CHUNG VÀ RIÊNG -->
+            <!-- MÀN HÌNH XEM TRƯỚC (LIVE PREVIEW) -->
             <div v-show="editorMode === 'preview'" class="p-4 space-y-3 bg-gray-100 dark:bg-gray-950 min-h-[450px]">
               <div class="flex items-center justify-between bg-white dark:bg-gray-800 p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-xs shadow-2xs">
                 <span class="font-semibold text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
@@ -493,7 +493,7 @@
                     <span class="font-medium">{{ previewRecipientDetails.bcc }}</span>
                   </div>
 
-                  <!-- DANH SÁCH FILE ĐÍNH KÈM TRONG XEM TRƯỚC (CHUNG & RIÊNG) -->
+                  <!-- DANH SÁCH FILE ĐÍNH KÈM CHUNG & RIÊNG -->
                   <div class="pt-2 border-t border-gray-200/60 dark:border-gray-700/60 flex flex-wrap items-start gap-2">
                     <span class="text-gray-400 w-20 inline-block shrink-0 pt-0.5">Đính kèm:</span>
                     <div v-if="previewAttachments.length" class="flex flex-wrap gap-1.5 flex-1">
@@ -561,7 +561,7 @@
         </div>
     </template>
 
-    <!-- MODAL 1: SỬA Ô DỮ LIỆU / CẢNH BÁO LỖI LỚN -->
+    <!-- MODAL 1: SỬA Ô DỮ LIỆU -->
     <div 
       v-if="editModal.show" 
       class="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
@@ -732,6 +732,7 @@
 
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch, onDeactivated, onActivated } from 'vue'
 import ExcelJS from 'exceljs'
 import { msalInstance, loginRequest } from '../authConfig'
@@ -748,36 +749,43 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
+// KHỞI TẠO VÀ KHÔI PHỤC PHIÊN LÀM VIỆC OUTLOOK
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleModalKeydown)
-  
-  try {
-    await msalInstance.initialize()
-    
-    const redirectRes = await msalInstance.handleRedirectPromise()
-    if (redirectRes) {
-      msalInstance.setActiveAccount(redirectRes.account)
-    }
 
-    const accounts = msalInstance.getAllAccounts()
-    if (accounts.length > 0) {
-      const activeAccount = accounts[0]!
-      msalInstance.setActiveAccount(activeAccount)
-      
-      userInfo.value = {
-        name: activeAccount.name || 'Microsoft User',
-        email: activeAccount.username || '',
-        avatar: null
+  // 1. Kiểm tra Token đã lưu từ OAuth Popup
+  const savedToken = localStorage.getItem('outlook_access_token') || sessionStorage.getItem('outlook_access_token')
+  const savedUser = localStorage.getItem('outlook_user_info') || sessionStorage.getItem('outlook_user_info')
+
+  if (savedToken && savedUser) {
+    try {
+      userInfo.value = JSON.parse(savedUser)
+    } catch {
+      await fetchOutlookProfile(savedToken)
+    }
+  } else if (savedToken) {
+    await fetchOutlookProfile(savedToken)
+  } else {
+    // 2. Nếu không thấy Token Popup, thử khôi phục từ MSAL
+    try {
+      await msalInstance.initialize()
+      const accounts = msalInstance.getAllAccounts()
+      if (accounts.length > 0) {
+        const activeAccount = accounts[0]!
+        msalInstance.setActiveAccount(activeAccount)
+        userInfo.value = {
+          name: activeAccount.name || 'Microsoft User',
+          email: activeAccount.username || '',
+          avatar: null
+        }
       }
-
-      loadUserAvatar()
+    } catch (err) {
+      console.error('Lỗi khởi tạo MSAL:', err)
     }
-  } catch (err) {
-    console.error('Lỗi khởi tạo MSAL:', err)
-  } finally {
-    authLoading.value = false
   }
+
+  authLoading.value = false
 })
 
 onBeforeUnmount(() => {
@@ -785,7 +793,11 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleModalKeydown)
 })
 
+// HÀM LẤY TOKEN ƯU TIÊN NGUỒN POPUP TỰ NẠP
 async function getAccessToken(): Promise<string> {
+  const savedToken = localStorage.getItem('outlook_access_token') || sessionStorage.getItem('outlook_access_token')
+  if (savedToken) return savedToken
+
   const account = msalInstance.getActiveAccount()
   if (!account) throw new Error('Chưa đăng nhập Microsoft')
   
@@ -798,34 +810,29 @@ async function getAccessToken(): Promise<string> {
   }
 }
 
-async function loadUserAvatar() {
+async function fetchOutlookProfile(token: string) {
   try {
-    const token = await getAccessToken()
-    if (!token) return
-
-    const res = await fetch('https://graph.microsoft.com/v1.0/me/photo/$value', {
+    const res = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: { Authorization: `Bearer ${token}` }
     })
-
     if (res.ok) {
-      const blob = await res.blob()
-      if (userInfo.value) {
-        userInfo.value.avatar = URL.createObjectURL(blob)
+      const data = await res.json()
+      userInfo.value = {
+        name: data.displayName || 'Microsoft User',
+        email: data.mail || data.userPrincipalName || '',
+        avatar: null
       }
+      localStorage.setItem('outlook_access_token', token)
+      localStorage.setItem('outlook_user_info', JSON.stringify(userInfo.value))
+      sessionStorage.setItem('outlook_access_token', token)
+      sessionStorage.setItem('outlook_user_info', JSON.stringify(userInfo.value))
+    } else {
+      logout()
     }
-  } catch {}
+  } catch (err) {
+    console.error('Lỗi lấy thông tin Microsoft User:', err)
+  }
 }
-
-// async function login() {
-//   try {
-//     await msalInstance.initialize()
-//     await msalInstance.loginRedirect(loginRequest)
-//   } catch (err: any) {
-//     alert('Không thể chuyển hướng đăng nhập: ' + (err.message || err))
-//   }
-// }
-
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 
 async function login() {
   const clientId = import.meta.env.VITE_OUTLOOK_CLIENT_ID
@@ -854,25 +861,22 @@ async function login() {
   await authWindow.once('tauri://destroyed', async () => {
     const token = localStorage.getItem('outlook_access_token')
     if (token) {
-      const res = await fetch('https://graph.microsoft.com/v1.0/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        userInfo.value = {
-          name: data.displayName || 'Microsoft User',
-          email: data.mail || data.userPrincipalName || '',
-          avatar: null
-        }
-      }
+      await fetchOutlookProfile(token)
     }
   })
 }
 
 async function logout() {
   try {
-    await msalInstance.logoutRedirect()
     userInfo.value = null
+    localStorage.removeItem('outlook_access_token')
+    localStorage.removeItem('outlook_user_info')
+    sessionStorage.removeItem('outlook_access_token')
+    sessionStorage.removeItem('outlook_user_info')
+    
+    if (msalInstance.getActiveAccount()) {
+      await msalInstance.logoutRedirect()
+    }
   } catch (err) {
     console.error('Lỗi đăng xuất:', err)
   }
@@ -954,7 +958,6 @@ async function downloadTemplate() {
         return
       } catch (saveErr: any) {
         if (saveErr?.name === 'AbortError') return
-        console.warn('Không thể lưu bằng hộp thoại trình duyệt, chuyển sang tải xuống...', saveErr)
       }
     }
 
@@ -973,7 +976,6 @@ async function downloadTemplate() {
     }, 200)
 
   } catch (err: any) {
-    console.error('Lỗi khi tải file mẫu:', err)
     alert('Không thể tải file Excel mẫu: ' + (err?.message || err))
   }
 }
@@ -1211,11 +1213,9 @@ const previewRecipientDetails = computed(() => {
   }
 })
 
-// TÍNH TOÁN DANH SÁCH FILE ĐÍNH KÈM CHUNG & RIÊNG CHO DÒNG ĐANG XEM TRƯỚC
 const previewAttachments = computed(() => {
   const list: Array<{ name: string; size?: number; isCommon: boolean }> = []
 
-  // 1. Tệp đính kèm chung
   commonAttachments.value.forEach(file => {
     list.push({
       name: file.name,
@@ -1224,7 +1224,6 @@ const previewAttachments = computed(() => {
     })
   })
 
-  // 2. Tệp đính kèm riêng theo từng dòng trong Excel
   if (dataRows.value.length > 0) {
     const row = dataRows.value[previewIndex.value] || []
     const fileColIdx = columnHeaders.value.findIndex(h => /filepath|file|dinhkem|đính kèm/i.test(String(h || '')))
@@ -1598,7 +1597,6 @@ async function sendRows(targetIndices?: number[]) {
   }
 }
 
-// BẬT POPUP XÁC NHẬN KHI BẤM NÚT GỬI MAIL
 function submitExcel() { 
   confirmSendModal.value = {
     show: true,
@@ -1621,7 +1619,7 @@ function handleConfirmSend() {
   sendRows(targetIndices)
 }
 
-// DARK MODE & CẤU HÌNH TINYMCE 7 (GIỮ NGUYÊN PARSER PASTE NATIVE)
+// DARK MODE & CẤU HÌNH TINYMCE 7
 const isDark = ref(false)
 
 function loadTinyMCEScript(): Promise<void> {
@@ -1720,7 +1718,6 @@ async function initTinyMCE() {
             lastFocusedField.value = 'body'
           })
 
-          // ĐỌC TRỰC TIẾP CLIPBOARD NATIVE ĐỂ GIỮ NGUYÊN VIỀN/MÀU EXCEL VÀ ẨN VIỀN WORD
           editor.on('paste', (e: ClipboardEvent) => {
             const clipboardHtml = e.clipboardData?.getData('text/html')
             if (!clipboardHtml || !/<table/i.test(clipboardHtml)) {
@@ -1836,23 +1833,20 @@ onBeforeUnmount(() => {
   }
 })
 
-// 1. Khi người dùng rời sang Tab khác: Lưu nội dung & Hủy instance TinyMCE
 onDeactivated(() => {
   if ((window as any).tinymce) {
     const editor = (window as any).tinymce.get('mail-editor')
     if (editor) {
-      bodyTemplate.value = editor.getContent() // Lưu lại nội dung đang soạn thảo
+      bodyTemplate.value = editor.getContent()
     }
-    (window as any).tinymce.remove('#mail-editor') // Hủy instance TinyMCE bị đóng băng
+    (window as any).tinymce.remove('#mail-editor')
   }
 })
 
-// 2. Khi người dùng quay lại Tab này: Khởi tạo lại TinyMCE
 onActivated(async () => {
   await nextTick()
-  initTinyMCE() // Re-init lại khung soạn thảo với nội dung đã lưu
+  initTinyMCE()
 })
-
 </script>
 
 <style scoped>
@@ -1863,7 +1857,6 @@ onActivated(async () => {
   box-sizing: border-box !important;
 }
 
-/* KHUNG XEM TRƯỚC (LIVE PREVIEW) CANVAS */
 .preview-canvas :deep(table) {
   border-collapse: collapse;
   margin: 12px 0;
