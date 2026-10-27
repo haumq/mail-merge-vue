@@ -816,28 +816,40 @@ async function loadGoogleUserInfo(token: string) {
     console.error('Lỗi lấy thông tin Google User:', err)
   }
 }
-// Tự động chọn Redirect URI phù hợp theo môi trường
-const getRedirectUri = () => {
-  if (import.meta.env.VITE_GOOGLE_CLIENT_ID) {
-    return 'http://localhost:1420' // Port dev của bạn (1420/5173/3000)
-  }
-  // Môi trường Production (.exe)
-  return 'https://tauri.localhost' 
-}
-
-const redirectUri = getRedirectUri()
-
 // import { openUrl } from '@tauri-apps/plugin-opener' // Hoặc dùng window.open nếu chưa cài plugin
 
-function login() {
+// function login() {
+//   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+//   const scopes = [
+//     'https://www.googleapis.com/auth/gmail.send',
+//     'https://www.googleapis.com/auth/userinfo.profile',
+//     'https://www.googleapis.com/auth/userinfo.email'
+//   ].join(' ')
+
+//   // Tạo đường dẫn OAuth 2.0 chuẩn của Google (Implicit Flow)
+//   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
+//     client_id: clientId,
+//     redirect_uri: redirectUri,
+//     response_type: 'token',
+//     scope: scopes,
+//     prompt: 'select_account'
+//   }).toString()
+
+//   // Chuyển hướng trực tiếp trang hiện tại thay vì bật Popup bị chặn
+//   window.location.href = authUrl
+// }
+
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
+
+async function login() {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+  const redirectUri = 'http://localhost:1420'
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/userinfo.profile',
     'https://www.googleapis.com/auth/userinfo.email'
   ].join(' ')
 
-  // Tạo đường dẫn OAuth 2.0 chuẩn của Google (Implicit Flow)
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -846,10 +858,26 @@ function login() {
     prompt: 'select_account'
   }).toString()
 
-  // Chuyển hướng trực tiếp trang hiện tại thay vì bật Popup bị chặn
-  window.location.href = authUrl
-}
+  // Tạo cửa sổ phụ
+  const authWindow = new WebviewWindow('google-oauth-popup', {
+    url: authUrl,
+    title: 'Đăng nhập Google Mail',
+    width: 520,
+    height: 650,
+    center: true,
+    resizable: false,
+    alwaysOnTop: true
+  })
 
+  // Khi cửa sổ phụ bị hủy -> Cửa sổ main lấy token từ localStorage
+  await authWindow.once('tauri://destroyed', async () => {
+    const token = localStorage.getItem('gmail_access_token')
+    if (token) {
+      googleAccessToken.value = token
+      await loadGoogleUserInfo(token)
+    }
+  })
+}
 onMounted(async () => {
     // 🔄 Khôi phục phiên làm việc nếu có trong Session Storage
   const savedToken = sessionStorage.getItem('gmail_access_token')
