@@ -836,6 +836,11 @@ async function fetchOutlookProfile(token: string) {
 
 async function login() {
   const clientId = import.meta.env.VITE_OUTLOOK_CLIENT_ID
+  if (!clientId) {
+    alert('Chưa cấu hình VITE_OUTLOOK_CLIENT_ID trong file .env!')
+    return
+  }
+
   const redirectUri = 'http://localhost:1420'
   const scopes = 'User.Read Mail.Send offline_access'
 
@@ -858,9 +863,32 @@ async function login() {
     alwaysOnTop: true
   })
 
+  let unlisten: (() => void) | null = null
+
+  // 💥 LẮNG NGHE SỰ KIỆN CHUYỂN HƯỚNG TỪ CỬA SỔ CHÍNH
+  unlisten = await authWindow.listen<{ url: string }>('tauri://on-page-load', async (event) => {
+    const url = event.payload?.url || ''
+
+    if (url.includes('access_token=')) {
+      const hash = url.substring(url.indexOf('#'))
+      const params = new URLSearchParams(hash.replace('#', '?'))
+      const token = params.get('access_token')
+
+      if (token) {
+        await fetchOutlookProfile(token)
+        if (unlisten) unlisten()
+        await authWindow.destroy() // Đóng popup ngay lập tức
+      }
+    } else if (url.includes('error=')) {
+      if (unlisten) unlisten()
+      await authWindow.destroy()
+    }
+  })
+
   await authWindow.once('tauri://destroyed', async () => {
+    if (unlisten) unlisten()
     const token = localStorage.getItem('outlook_access_token')
-    if (token) {
+    if (token && !userInfo.value) {
       await fetchOutlookProfile(token)
     }
   })

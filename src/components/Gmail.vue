@@ -814,6 +814,11 @@ async function loadGoogleUserInfo(token: string) {
 }
 
 async function login() {
+  if (!GOOGLE_CLIENT_ID) {
+    alert('Chưa cấu hình VITE_GOOGLE_CLIENT_ID trong file .env!')
+    return
+  }
+
   const redirectUri = 'http://localhost:1420'
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
@@ -840,10 +845,33 @@ async function login() {
     alwaysOnTop: true
   })
 
-  // Lắng nghe khi popup bị hủy -> Đọc Token và nạp User
+  let unlisten: (() => void) | null = null
+
+  // 💥 LẮNG NGHE SỰ KIỆN CHUYỂN HƯỚNG TỪ CỬA SỔ CHÍNH (Bắt được Token kể cả khi cổng 1420 không có server)
+  unlisten = await authWindow.listen<{ url: string }>('tauri://on-page-load', async (event) => {
+    const url = event.payload?.url || ''
+
+    if (url.includes('access_token=')) {
+      const hash = url.substring(url.indexOf('#'))
+      const params = new URLSearchParams(hash.replace('#', '?'))
+      const token = params.get('access_token')
+
+      if (token) {
+        googleAccessToken.value = token
+        await loadGoogleUserInfo(token)
+        if (unlisten) unlisten()
+        await authWindow.destroy() // Đóng popup ngay lập tức
+      }
+    } else if (url.includes('error=')) {
+      if (unlisten) unlisten()
+      await authWindow.destroy()
+    }
+  })
+
   await authWindow.once('tauri://destroyed', async () => {
+    if (unlisten) unlisten()
     const token = localStorage.getItem('gmail_access_token')
-    if (token) {
+    if (token && !googleAccessToken.value) {
       googleAccessToken.value = token
       await loadGoogleUserInfo(token)
     }
