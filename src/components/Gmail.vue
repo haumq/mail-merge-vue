@@ -917,6 +917,7 @@ function logout() {
   localStorage.removeItem('gmail_user_info')
   sessionStorage.removeItem('gmail_access_token')
   sessionStorage.removeItem('gmail_user_info')
+  toggleMenu.value = false
 }
 
 // 📥 TẢI FILE EXCEL MẪU
