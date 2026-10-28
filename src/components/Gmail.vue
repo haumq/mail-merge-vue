@@ -56,12 +56,16 @@
         >
           <button
             type="button"
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-md transition-colors font-medium cursor-pointer"
+            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/10 dark:hover:bg-rose-900/30 text-gray-700 dark:text-gray-300 rounded-md transition-colors font-medium cursor-pointer mb-2"
             @click.stop="logout"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             Đăng xuất Tài khoản Google
           </button>
+          <!-- Nút 2: Đăng xuất hoàn toàn -->
+        <button @click.stop="logoutCompletely" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/10 dark:hover:bg-rose-900/30 text-rose-600 rounded-md transition-colors font-medium cursor-pointer">
+        Thoát hoàn toàn tài khoản Google
+        </button>
         </div>
       </div>
 
@@ -104,7 +108,7 @@
           <button 
             type="button"
             :disabled="loading || !dataRows.length" 
-            class="flex items-center gap-2 px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-md transition-all cursor-pointer"
+            class="flex items-center gap-2 px-8 py-2.5 bg-rose-300 hover:bg-rose-400 dark:bg-rose-700/50 dark:hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-md transition-all cursor-pointer"
             @click="submitExcel"
           >
             <svg v-if="loading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -822,40 +826,20 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 // const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
 // const userInfo = ref<any>(null)
 
-onMounted(async () => {
-  // 💥 LẮNG NGHE EVENT TỪ POPUP GỬI VỀ CỬA SỔ CHÍNH
-  await listen<{ provider: string; token: string }>('oauth-login-success', async (event) => {
-    if (event.payload.provider === 'gmail') {
-      const token = event.payload.token
-      googleAccessToken.value = token
-      localStorage.setItem('gmail_access_token', token)
-      await loadGoogleUserInfo(token)
-    }
-  })
-
-  if (googleAccessToken.value) {
-    await loadGoogleUserInfo(googleAccessToken.value)
-  }
-})
-
-// const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
-
 let unlistenOAuth: UnlistenFn | null = null
 
 onMounted(async () => {
-  // 1. Đăng ký lắng nghe Token do Rust gửi về cửa sổ chính
   unlistenOAuth = await listen<string>('oauth-token-received', async (event) => {
     const url = event.payload || ''
-
     if (url.includes('access_token=')) {
       const hash = url.substring(url.indexOf('#'))
       const params = new URLSearchParams(hash.replace('#', '?'))
       const token = params.get('access_token')
 
       if (token) {
-        // Cập nhật State Vue & localStorage lập tức
         googleAccessToken.value = token
         localStorage.setItem('gmail_access_token', token)
+        localStorage.removeItem('gmail_force_reauth') // 💥 Cờ riêng cho Gmail
         await loadGoogleUserInfo(token)
       }
     }
@@ -872,8 +856,9 @@ onBeforeUnmount(() => {
 
 async function login() {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-  if (!clientId) return alert('Chưa cấu hình VITE_GOOGLE_CLIENT_ID!')
+  if (!clientId) return alert('Chưa cấu hình Client ID Google!')
 
+  const isForceReauth = localStorage.getItem('gmail_force_reauth') === 'true'
   const redirectUri = 'http://localhost:1420'
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
@@ -886,14 +871,15 @@ async function login() {
     redirect_uri: redirectUri,
     response_type: 'token',
     scope: scopes,
-    prompt: 'select_account'
+    prompt: isForceReauth ? 'consent select_account' : 'select_account'
   }).toString()
 
-  // 2. Gọi lệnh Rust mở Popup đăng nhập
   await invoke('open_oauth_popup', {
     url: authUrl,
     title: 'Đăng nhập Google Mail',
-    windowLabel: 'google-oauth-popup'
+    windowLabel: 'google-oauth-popup',
+    provider: 'gmail', // 👈 Dùng để phân biệt với các OAuth khác trong Tauri
+    incognito: isForceReauth // 👈 Ép mở ẩn danh nếu người dùng vừa chọn "Thoát hoàn toàn"
   })
 }
 
@@ -918,6 +904,16 @@ function logout() {
   sessionStorage.removeItem('gmail_access_token')
   sessionStorage.removeItem('gmail_user_info')
   toggleMenu.value = false
+}
+
+// 3. HÀM ĐĂNG XUẤT HOÀN TOÀN (Xóa sạch tài khoản khỏi WebView2)
+async function logoutCompletely() {
+  // Xóa Token local
+  logout()
+
+  // Gọi Rust xóa Session Cookie ngầm
+  localStorage.setItem('gmail_force_reauth', 'true')
+  alert('Đã xóa tài khoản ghi nhớ hoàn toàn!')
 }
 
 // 📥 TẢI FILE EXCEL MẪU

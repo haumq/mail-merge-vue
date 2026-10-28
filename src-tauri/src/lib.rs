@@ -10,8 +10,9 @@ async fn open_oauth_popup(
     url: String,
     title: String,
     window_label: String,
+    provider: String, // 👈 Phân biệt "gmail" hoặc "outlook"
+    incognito: Option<bool>,
 ) -> Result<(), String> {
-    // Nếu popup cũ chưa đóng, tiến hành đóng trước
     if let Some(existing_win) = app.get_webview_window(&window_label) {
         let _ = existing_win.destroy();
     }
@@ -19,6 +20,10 @@ async fn open_oauth_popup(
     let app_handle = app.clone();
     let label_clone = window_label.clone();
     let target_url = url.parse().map_err(|e| format!("URL không hợp lệ: {}", e))?;
+    let is_incognito = incognito.unwrap_or(false);
+
+    // Tạo tên Event độc lập cho từng dịch vụ
+    let event_name = format!("{}-token-received", provider); 
 
     WebviewWindowBuilder::new(&app, &window_label, WebviewUrl::External(target_url))
         .title(title)
@@ -26,31 +31,29 @@ async fn open_oauth_popup(
         .center()
         .resizable(false)
         .always_on_top(true)
+        .incognito(is_incognito)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .on_navigation(move |url| {
             let url_str = url.as_str();
 
-            // 💥 BẮT HƯỚNG CHUYỂN TRƯỚC KHUYẾN NẠP TRANG LOCALHOST
             if url_str.starts_with("http://localhost:1420") || url_str.contains("access_token=") || url_str.contains("error=") {
-                // 1. Phát Event chứa URL có Token về cửa sổ chính
-                let _ = app_handle.emit("oauth-token-received", url_str.to_string());
-
-                // 2. Hủy popup ngay lập tức
+                // 💥 Chỉ phát Event đúng cho dịch vụ đang gọi
+                let _ = app_handle.emit(&event_name, url_str.to_string());
+                
                 if let Some(win) = app_handle.get_webview_window(&label_clone) {
                     let _ = win.destroy();
                 }
-
-                // 3. Trả về false để CHẶN WebView2 nạp localhost:1420 -> TRÁNH HOÀN TOÀN MÀN HÌNH TRẮNG!
                 return false;
             }
 
-            true // Cho phép nạp các trang đăng nhập Google/Microsoft
+            true
         })
         .build()
         .map_err(|e| format!("Lỗi tạo cửa sổ: {}", e))?;
 
     Ok(())
 }
+
 use std::io::{Read, Write};
 use std::net::TcpListener;
 

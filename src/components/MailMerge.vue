@@ -39,7 +39,7 @@
               <h3 class="font-semibold text-gray-900 dark:text-white text-sm">
                 {{ userInfo.name }}
               </h3>
-              <span class="px-2 py-0.5 text-[11px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-full">
+              <span class="px-2 py-0.5 text-[11px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded-full">
                 Đã kết nối Exchange
               </span>
             </div>
@@ -56,12 +56,16 @@
         >
           <button
             type="button"
-            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-md transition-colors font-medium cursor-pointer"
+            class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-800/10 dark:hover:bg-blue-800/40 text-gray-700 dark:text-gray-300 rounded-md transition-colors font-medium cursor-pointer mb-2"
             @click.stop="logout"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             Đăng xuất Outlook / Exchange
           </button>
+          <!-- Nút 2: Đăng xuất hoàn toàn -->
+        <button @click.stop="logoutCompletely" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/10 dark:hover:bg-blue-900/30 text-rose-500 rounded-md transition-colors font-medium cursor-pointer">
+        Thoát hoàn toàn tài khoản Outlook
+        </button>
         </div>
       </div>
 
@@ -104,7 +108,7 @@
           <button 
             type="button"
             :disabled="loading || !dataRows.length" 
-            class="flex items-center gap-2 px-8 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-md transition-all cursor-pointer"
+            class="flex items-center gap-2 px-8 py-2.5 bg-blue-300 hover:bg-blue-500 dark:bg-blue-700/50 dark:hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold shadow-md transition-all cursor-pointer"
             @click="submitExcel"
           >
             <svg v-if="loading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -305,7 +309,7 @@
         <!-- KHỐI 3: TRÌNH SOẠN THẢO EMAIL OUTLOOK / GMAIL (TINYMCE 7) -->
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md overflow-hidden flex flex-col">
           <!-- 1. Thanh tiêu đề cửa sổ Compose -->
-          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 dark:bg-gradient-to-r dark:from-gray-900 dark:via-gray-800 dark:to-indigo-900 text-gray-700 dark:text-white shadow-xs">
+          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 dark:bg-gradient-to-r dark:from-gray-900 dark:via-gray-800 dark:to-blue-900 text-gray-700 dark:text-white shadow-xs">
             <div class="flex items-center gap-2.5">
               <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15 backdrop-blur-md text-white font-bold text-sm shadow-2xs">
                 ✉️
@@ -841,7 +845,7 @@ let unlistenOAuth: UnlistenFn | null = null
 
 onMounted(async () => {
   // 1. Đăng ký lắng nghe Token từ Rust gửi về Cửa sổ chính
-  unlistenOAuth = await listen<string>('oauth-token-received', async (event) => {
+  unlistenOAuth = await listen<string>('outlook-token-received', async (event) => {
     const url = event.payload || ''
 
     if (url.includes('access_token=')) {
@@ -853,6 +857,7 @@ onMounted(async () => {
         // Cập nhật State Vue & LocalStorage lập tức
         outlookAccessToken.value = token
         localStorage.setItem('outlook_access_token', token)
+        localStorage.removeItem('outlook_force_reauth') // 💥 Cờ riêng cho Outlook
         await fetchOutlookProfile(token)
       }
     }
@@ -869,11 +874,9 @@ onBeforeUnmount(() => {
 })
 async function login() {
   const clientId = import.meta.env.VITE_OUTLOOK_CLIENT_ID
-  if (!clientId) {
-    alert('Chưa cấu hình VITE_OUTLOOK_CLIENT_ID trong file .env!')
-    return
-  }
+  if (!clientId) return alert('Chưa cấu hình Client ID Outlook!')
 
+  const isForceReauth = localStorage.getItem('outlook_force_reauth') === 'true'
   const redirectUri = 'http://localhost:1420'
   const scopes = 'User.Read Mail.Send offline_access'
 
@@ -883,14 +886,16 @@ async function login() {
     redirect_uri: redirectUri,
     scope: scopes,
     response_mode: 'fragment',
-    prompt: 'select_account'
+    // Microsoft: Đổi 'login' để bỏ hẳn dòng "We found an account you can use here"
+    prompt: isForceReauth ? 'login' : 'select_account'
   }).toString()
 
-  // 2. Gọi lệnh Rust mở Popup đăng nhập Outlook
   await invoke('open_oauth_popup', {
     url: authUrl,
     title: 'Đăng nhập Microsoft Outlook',
-    windowLabel: 'outlook-oauth-popup'
+    windowLabel: 'outlook-oauth-popup',
+    provider: 'outlook', // 👈 Phân biệt Provider
+    incognito: isForceReauth // 👈 Ép mở ẩn danh xóa sạch các thẻ tài khoản ghi nhớ
   })
 }
 
@@ -909,6 +914,15 @@ async function logout() {
   } catch (err) {
     console.error('Lỗi đăng xuất:', err)
   }
+}
+// 3. HÀM ĐĂNG XUẤT HOÀN TOÀN (Xóa sạch tài khoản khỏi WebView2)
+async function logoutCompletely() {
+  // Xóa Token local
+  logout()
+
+  // Gọi Rust xóa Session Cookie ngầm
+ localStorage.setItem('outlook_force_reauth', 'true')
+  alert('Đã xóa tài khoản ghi nhớ hoàn toàn!')
 }
 
 // 📥 TẢI FILE EXCEL MẪU
