@@ -1,5 +1,27 @@
 <template>
   <div class="p-4 sm:p-6 mx-auto space-y-6 font-sans w-full">
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="transform translate-y-5 opacity-0 scale-95"
+      enter-to-class="transform translate-y-0 opacity-100 scale-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="transform translate-y-0 opacity-100 scale-100"
+      leave-to-class="transform translate-y-5 opacity-0 scale-95"
+    >
+    <div
+      v-if="toast.show"
+      class="fixed right-4 bottom-4 z-[60] min-w-[260px] max-w-[320px] rounded-xl border border-emerald-200 bg-white/95 px-4 py-3 shadow-xl backdrop-blur-sm dark:border-emerald-900/40 dark:bg-gray-900/95"
+      :class="toast.type === 'error' ? 'border-rose-200 text-rose-700 dark:border-rose-900/40 dark:text-rose-300' : toast.type === 'info' ? 'border-sky-200 text-sky-700 dark:border-sky-900/40 dark:text-sky-300' : 'border-emerald-200 text-emerald-700 dark:border-emerald-900/40 dark:text-emerald-300'"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="flex items-start gap-3">
+        <span class="text-lg leading-none">{{ toast.type === 'error' ? '⚠️' : toast.type === 'info' ? 'ℹ️' : '✅' }}</span>
+        <div class="text-sm font-medium leading-5">{{ toast.message }}</div>
+      </div>
+    </div>
+    </Transition>
+
     <!-- KHỐI 1: HEADER & TÀI KHOẢN GOOGLE / GMAIL (FIXED STICKY TOP-0) -->
     <div class="sticky top-0 z-30 flex flex-col lg:flex-row items-center justify-between gap-4 bg-white/75 dark:bg-gray-800/75 backdrop-blur-md p-4 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
       <!-- State 1: Đang nạp Auth -->
@@ -746,6 +768,23 @@ import ExcelJS from 'exceljs'
 // const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 // State Đăng Nhập Google (OAuth 2.0)
+const toast = ref<{ show: boolean; type: 'success' | 'error' | 'info'; message: string }>({
+  show: false,
+  type: 'success',
+  message: ''
+})
+let toastTimeout: number | null = null
+
+function showToast(type: 'success' | 'error' | 'info', message: string) {
+  toast.value = { show: true, type, message }
+  if (toastTimeout !== null) {
+    window.clearTimeout(toastTimeout)
+  }
+  toastTimeout = window.setTimeout(() => {
+    toast.value.show = false
+  }, 2500)
+}
+
 const toggleMenu = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
 const authLoading = ref(true)
@@ -913,7 +952,7 @@ async function logoutCompletely() {
 
   // Gọi Rust xóa Session Cookie ngầm
   localStorage.setItem('gmail_force_reauth', 'true')
-  alert('Đã xóa tài khoản ghi nhớ hoàn toàn!')
+  showToast('info', 'Đã thoát hoàn toàn tài khoản Google!')
 }
 
 // 📥 TẢI FILE EXCEL MẪU
