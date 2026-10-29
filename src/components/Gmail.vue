@@ -586,6 +586,27 @@
           </div>
         </div>
     </template>
+    <template v-if="showGuide">
+      <p>Lưu ý đăng nhập Gmail lần đầu:</p>
+      <ul class="list-none text-xs text-gray-600 dark:text-gray-400 space-y-1">
+        <li>1. Đăng nhập Gmail => Nhập email và mật khẩu</li>
+        <span class="flex gap-4 py-4">
+          <img src="/hd/dn1.png" alt="Nhập email" class="w-1/2 max-w-sm rounded-lg border border-gray-200 [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:border-gray-700 shadow-sm dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+          <img src="/hd/dn2.png" alt="Nhập mật khẩu" class="w-1/2 max-w-sm rounded-lg border border-gray-200 [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:border-gray-700 shadow-sm dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+        </span>
+        <li>2. Cảnh báo Google chưa xác nhận ứng dụng => Chọn Nâng cao => Chọn Đi tới Mail Merge</li>
+        <span class="flex gap-4 py-4">
+          <img src="/hd/dn3.png" alt="Chọn nâng cao" class="w-1/2 max-w-sm rounded-lg border border-gray-200 [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:border-gray-700 shadow-sm dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+          <img src="/hd/dn4.png" alt="Chọn Đi tới Mail Merge" class="w-1/2 max-w-sm rounded-lg border border-gray-200 [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:border-gray-700 shadow-sm dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+        </span>
+        <li>3. Sau khi vào giao diện đăng nhập => Chọn tiếp tục => Vào cửa sổ cấp quyền gửi Mail, chọn Tiếp tục.</li>
+        <span class="flex gap-4 py-4">
+          <img src="/hd/dn5.png" alt="Nhập email" class="w-1/2 max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+          <img src="/hd/dn6.png" alt="Nhập mật khẩu" class="w-1/2 max-w-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent),linear-gradient(to_right,transparent,black_8px,black_calc(100%-8px),transparent)] [mask-composite:intersect] dark:invert-[0.88] dark:hue-rotate-180 dark:brightness-95 dark:contrast-125" />
+        </span>
+      </ul>
+
+    </template>
 
     <!-- MODAL 1: SỬA Ô DỮ LIỆU -->
     <div 
@@ -775,15 +796,18 @@ const toast = ref<{ show: boolean; type: 'success' | 'error' | 'info'; message: 
 })
 let toastTimeout: number | null = null
 
-function showToast(type: 'success' | 'error' | 'info', message: string) {
+function showToast(type: 'success' | 'error' | 'info', message: string, duration?: number) {
   toast.value = { show: true, type, message }
   if (toastTimeout !== null) {
     window.clearTimeout(toastTimeout)
   }
+  const timeout = duration ?? 2500
   toastTimeout = window.setTimeout(() => {
     toast.value.show = false
-  }, 2500)
+  }, timeout)
 }
+
+
 
 const toggleMenu = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
@@ -796,6 +820,11 @@ function handleClickOutside(event: MouseEvent) {
     toggleMenu.value = false
   }
 }
+
+const stored = localStorage.getItem('gmail_force_reauth')
+const isForceReauthCheck = ref<boolean>(stored === null ? true : stored === 'true')
+const showGuide = computed(() => !googleAccessToken.value && isForceReauthCheck.value)
+
 
 // KHỞI TẠO VA KHÔI PHỤC PHIÊN LÀM VIỆC
 onMounted(async () => {
@@ -860,15 +889,10 @@ async function loadGoogleUserInfo(token: string) {
 
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-// import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-
-// const googleAccessToken = ref<string>(localStorage.getItem('gmail_access_token') || '')
-// const userInfo = ref<any>(null)
-
 let unlistenOAuth: UnlistenFn | null = null
 
 onMounted(async () => {
-  unlistenOAuth = await listen<string>('oauth-token-received', async (event) => {
+  unlistenOAuth = await listen<string>('gmail-token-received', async (event) => {
     const url = event.payload || ''
     if (url.includes('access_token=')) {
       const hash = url.substring(url.indexOf('#'))
@@ -943,6 +967,7 @@ function logout() {
   sessionStorage.removeItem('gmail_access_token')
   sessionStorage.removeItem('gmail_user_info')
   toggleMenu.value = false
+  isForceReauthCheck.value = false
 }
 
 // 3. HÀM ĐĂNG XUẤT HOÀN TOÀN (Xóa sạch tài khoản khỏi WebView2)
@@ -952,6 +977,7 @@ async function logoutCompletely() {
 
   // Gọi Rust xóa Session Cookie ngầm
   localStorage.setItem('gmail_force_reauth', 'true')
+  isForceReauthCheck.value = true
   showToast('info', 'Đã thoát hoàn toàn tài khoản Google!')
 }
 
@@ -1027,7 +1053,7 @@ async function downloadTemplate() {
         const writable = await fileHandle.createWritable()
         await writable.write(uint8Array)
         await writable.close()
-        alert('✅ Đã tải và lưu file Excel mẫu thành công!')
+        showToast('success', 'Đã tải và lưu file Excel mẫu thành công!', 3000)
         return
       } catch (saveErr: any) {
         if (saveErr?.name === 'AbortError') return
@@ -1726,6 +1752,7 @@ async function sendRows(targetIndices?: number[]) {
     const successCount = Object.values(rowStatuses.value).filter(s => s === 'SUCCESS').length
     const failedCount = Object.values(rowStatuses.value).filter(s => s === 'FAILED').length
     report.value = { summary: { total: dataRows.value.length, success: successCount, failed: failedCount } }
+    showToast('success', `Hoàn tất gửi mail merge: ${successCount} thành công, ${failedCount} thất bại.`, 5000)
   } catch (err: any) {
     alert('Lỗi thực thi Gmail Mail Merge: ' + err.message)
   } finally {

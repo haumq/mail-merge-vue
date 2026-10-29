@@ -782,14 +782,15 @@ const toast = ref<{ show: boolean; type: 'success' | 'error' | 'info'; message: 
 })
 let toastTimeout: number | null = null
 
-function showToast(type: 'success' | 'error' | 'info', message: string) {
+function showToast(type: 'success' | 'error' | 'info', message: string, duration?: number) {
   toast.value = { show: true, type, message }
   if (toastTimeout !== null) {
     window.clearTimeout(toastTimeout)
   }
+  const timeout = duration ?? 2500
   toastTimeout = window.setTimeout(() => {
     toast.value.show = false
-  }, 2500)
+  }, timeout)
 }
 
 // KHỞI TẠO VÀ KHÔI PHỤC PHIÊN LÀM VIỆC OUTLOOK
@@ -1036,7 +1037,7 @@ async function downloadTemplate() {
         const writable = await fileHandle.createWritable()
         await writable.write(uint8Array)
         await writable.close()
-        alert('✅ Đã tải và lưu file Excel mẫu thành công!')
+        showToast('success', 'Đã tải và lưu file Excel mẫu thành công!', 3000)
         return
       } catch (saveErr: any) {
         if (saveErr?.name === 'AbortError') return
@@ -1672,6 +1673,7 @@ async function sendRows(targetIndices?: number[]) {
     const successCount = Object.values(rowStatuses.value).filter(s => s === 'SUCCESS').length
     const failedCount = Object.values(rowStatuses.value).filter(s => s === 'FAILED').length
     report.value = { summary: { total: dataRows.value.length, success: successCount, failed: failedCount } }
+    showToast('success', `Hoàn tất gửi mail merge: ${successCount} thành công, ${failedCount} thất bại.`, 5000)
   } catch (err: any) {
     alert('Lỗi thực thi Mail Merge: ' + err.message)
   } finally {
