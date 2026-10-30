@@ -3,6 +3,9 @@ import { onMounted, ref, watch, computed, markRaw } from 'vue'
 import Gmail from './components/Gmail.vue'
 import MailMerge from './components/MailMerge.vue'
 import QR from './components/Qr.vue'
+import UpdateToast from './components/UpdateToast.vue'
+
+const updaterRef = ref<InstanceType<typeof UpdateToast> | null>(null)
 
 const menuExpanded = ref(true)
 const darkMode = ref(false)
@@ -40,7 +43,13 @@ onMounted(() => {
     ? document.documentElement.classList.contains('dark')
     : savedDarkMode === 'true'
   applyDarkMode()
+  // Tự động kiểm tra bản mới ở chế độ im lặng khi vừa mở app
+  updaterRef.value?.checkForUpdates(true)
 })
+// Cho nút bấm kiểm tra cập nhật thủ công ở Sidebar/Setting
+function manualCheckUpdate() {
+  updaterRef.value?.checkForUpdates(false)
+}
 
 watch(selectedMail, (mail) => {
   localStorage.setItem('selectedMail', mail)
@@ -147,7 +156,7 @@ function toggleDarkMode() {
                 <span v-if="menuExpanded" class="whitespace-nowrap">Tạo QR</span>
               </Transition>
             </button>
-           
+                      
             <button
               type="button"
               class="flex w-full items-center gap-3 rounded-lg border border-transparent py-2 text-sm transition-colors"
@@ -167,6 +176,23 @@ function toggleDarkMode() {
                 <span v-if="menuExpanded" class="whitespace-nowrap">{{ darkMode ? 'Màn hình tối' : 'Màn hình sáng' }}</span>
               </Transition>
             </button>
+             <button
+              type="button"
+              class="flex w-full items-center gap-3 rounded-lg border border-transparent py-2 text-sm transition-colors"
+              :class="[menuExpanded ? 'px-3' : 'justify-left px-2']"
+              aria-label="Kiểm tra cập nhật"
+              :title="'Kiểm tra cập nhật'"
+              @click="manualCheckUpdate()"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" class="h-5 w-5 shrink-0">
+                <path d="M12 3a9 9 0 0 1 8.2 12.8M12 21a9 9 0 0 1-8.2-12.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M3 6.5h3.5L8 4.5m13 11h-3.5L16 19.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M12 7v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <Transition name="menu-label">
+                <span v-if="menuExpanded" class="whitespace-nowrap">Kiểm tra cập nhật</span>
+              </Transition>
+            </button>
           </section>
         </nav>        
       </aside>
@@ -178,6 +204,8 @@ function toggleDarkMode() {
           </KeepAlive>
         </main>
       </section>
+      <!-- Component Toast Cập Nhật -->
+    <UpdateToast ref="updaterRef" />
     </div>
   </main>
 </template>

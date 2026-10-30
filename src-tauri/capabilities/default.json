@@ -12,6 +12,8 @@
     "core:webview:allow-create-webview-window",
     "core:event:allow-emit",
     "core:event:allow-listen",
-    "opener:default"
+    "opener:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }
