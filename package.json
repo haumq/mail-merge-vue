@@ -1,7 +1,7 @@
 {
   "name": "mail-merge-vue",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.18",
   "description": "Mail Merge App với Gmail, Outlook và QR Code Generator",
   "type": "module",
   "scripts": {

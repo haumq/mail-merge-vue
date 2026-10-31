@@ -285,7 +285,18 @@
                             @dblclick="openEditModal(rowIdx, colIdx - 1)"
                           />
 
-                          <button 
+                          <!-- Nút 📁 chọn file nhanh trực tiếp trên dòng -->
+                            <button
+                              v-if="isFileColumn(colIdx - 1)"
+                              type="button"
+                              class="pr-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-bold transition-transform cursor-pointer shrink-0"
+                              title="Bấm để mở hộp thoại Windows chọn file đính kèm"
+                              @click.stop="pickFilesForCell(rowIdx, colIdx - 1, 'append')"
+                            >
+                              📁
+                            </button>
+                            <!-- Nút cảnh báo lỗi file cũ (nếu có) -->
+                            <button 
                             v-if="fileCheckResults[rowIdx] && !fileCheckResults[rowIdx].valid && isFileColumn(colIdx - 1)"
                             type="button"
                             class="pr-1 text-rose-500 text-xs font-bold hover:scale-125 transition-transform cursor-pointer shrink-0"
@@ -627,6 +638,25 @@
           <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">
             Nội dung ô dữ liệu (Nhấn <code>Ctrl + S</code> để lưu nhanh, <code>Esc</code> để hủy):
           </label>
+          <!-- 💥 BỘ NÚT CHỌN FILE BẰNG HỘP THOẠI WIN -->
+          <div v-if="isFileColumn(editModal.colIdx)" class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 rounded-md text-[11px] font-medium transition-colors cursor-pointer"
+              title="Thêm file vào cuối danh sách hiện tại"
+              @click="pickFilesForModal('append')"
+            >
+              ➕ Thêm File
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900 rounded-md text-[11px] font-medium transition-colors cursor-pointer"
+              title="Xóa đường dẫn cũ và ghi đè file mới chọn"
+              @click="pickFilesForModal('replace')"
+            >
+              🔄 Thay Thế File
+            </button>
+          </div>
           <textarea
             v-model="editModal.value"
             rows="7"
@@ -1164,6 +1194,74 @@ function formatCellValue(val: any): string {
   return String(val).trim()
 }
 
+// 💥 HÀM CHỌN FILE DÙNG CHO MODAL SỬA Ô (ĐÃ KHỬ TRÙNG FILE)
+async function pickFilesForModal(mode: 'replace' | 'append') {
+  try {
+    const selected = await openFileDialog({
+      multiple: true,
+      title: 'Chọn tệp đính kèm trên máy tính'
+    })
+
+    if (!selected) return
+
+    const newPaths = Array.isArray(selected) ? selected : [selected]
+
+    if (mode === 'replace' || !editModal.value.value.trim()) {
+      // Loại bỏ trùng lặp trong chính danh sách vừa chọn
+      editModal.value.value = Array.from(new Set(newPaths)).join('; ')
+    } else {
+      // Tách danh sách cũ ra thành mảng
+      const currentPaths = editModal.value.value
+        .split(/[;,\r\n]+/)
+        .map(p => p.trim())
+        .filter(Boolean)
+
+      // Gộp cũ + mới và dùng Set để khử trùng lặp hoàn toàn
+      const combined = [...currentPaths, ...newPaths]
+      editModal.value.value = Array.from(new Set(combined)).join('; ')
+    }
+  } catch (err) {
+    console.error('Lỗi khi mở hộp thoại chọn file:', err)
+  }
+}
+
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
+// 💥 HÀM CHỌN FILE NHANH CHO TỪNG Ô TRONG BẢNG EXCEL (ĐÃ KHỬ TRÙNG FILE)
+async function pickFilesForCell(rowIdx: number, colIdx: number, mode: 'replace' | 'append' = 'append') {
+  try {
+    const selected = await openFileDialog({
+      multiple: true,
+      title: 'Chọn tệp đính kèm'
+    })
+
+    if (!selected) return
+
+    const newPaths = Array.isArray(selected) ? selected : [selected]
+    const currentVal = sheetRows.value[rowIdx + 1]?.[colIdx] || ''
+
+    let finalVal = ''
+    if (mode === 'replace' || !currentVal.trim()) {
+      finalVal = Array.from(new Set(newPaths)).join('; ')
+    } else {
+      const currentPaths = currentVal
+        .split(/[;,\r\n]+/)
+        .map(p => p.trim())
+        .filter(Boolean)
+
+      const combined = [...currentPaths, ...newPaths]
+      finalVal = Array.from(new Set(combined)).join('; ')
+    }
+
+    if (sheetRows.value[rowIdx + 1]) {
+      sheetRows.value[rowIdx + 1]![colIdx] = finalVal
+      sheetRows.value = [...sheetRows.value]
+      onCellDataChange()
+    }
+  } catch (err) {
+    console.error('Lỗi khi mở hộp thoại chọn file:', err)
+  }
+}
+
 // Excel Grid State
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
@@ -1614,7 +1712,9 @@ async function sendRows(targetIndices?: number[]) {
         const rawPaths = String(row[fileColIdx]).trim()
         
         if (rawPaths) {
-          const pathList = rawPaths.split(/[;,]/).map(p => p.trim()).filter(Boolean)
+          // 💥 Dùng Array.from(new Set(...)) để loại bỏ trùng lặp nếu người dùng nhập tay bị trùng
+          const rawList = rawPaths.split(/[;,\r\n]+/).map(p => p.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
+          const pathList = Array.from(new Set(rawList))
 
           for (const singlePath of pathList) {
             try {
