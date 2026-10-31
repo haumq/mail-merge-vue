@@ -57,11 +57,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Mail Merge Pro ${{ github.ref_name }}'
           releaseBody: 'Xem danh sách thay đổi chi tiết tại commit log.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           uploadPlainBinary: true # 👈 Bật tính năng đẩy thêm file .exe Portable chạy trực tiếp
           args: ${{ matrix.args }}
